@@ -1,0 +1,36 @@
+{
+  "model": "claude-sonnet-4-5-20250929",
+  "permissions": {
+    "allow": ["Edit", "Write", "Read", "Task", "Bash(git:*)"],
+    "ask": ["Bash(npm install:*)", "Bash(pip install:*)"],
+    "deny": ["Bash(rm -rf:*)", "Read(.env*)", "Read(**/*secret*)"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit:*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test",
+            "args": ["-f", "/tmp/functional-tests-passing"],
+            "continueOnError": false
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo",
+            "args": ["File modified: $FILE_PATH"],
+            "continueOnError": true
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -316,3 +316,85 @@ class HookEngine:
             action=ExitCodeResult.ALLOW,
             blocked=False
         )
+
+    def execute_post_tool_use(self, tool: str, args: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute PostToolUse hooks after tool completion"""
+        post_tool_hooks = self.config.get("hooks", {}).get("PostToolUse", [])
+
+        for hook_config in post_tool_hooks:
+            pattern = hook_config.get("matcher")
+            hooks = hook_config.get("hooks", [])
+
+            if self.matcher.matches_pattern(pattern, tool, args):
+                for hook_def in hooks:
+                    hook = CommandHook(
+                        type=hook_def["type"],
+                        command=hook_def["command"],
+                        args=hook_def.get("args", []),
+                        env=hook_def.get("env", {}),
+                        timeout=hook_def.get("timeout", 5000),
+                        continue_on_error=hook_def.get("continueOnError", False)
+                    )
+
+                    context = HookContext(tool=tool, args=args)
+                    result = self.executor.execute_hook(hook, context)
+
+                    if result.blocked or (result.action == ExitCodeResult.ERROR and not hook.continue_on_error):
+                        return result.__dict__
+
+        return {'exit_code': 0, 'stdout': '', 'stderr': '', 'blocked': False}
+
+    def execute_user_prompt_submit(self, prompt: str) -> Dict[str, Any]:
+        """Execute UserPromptSubmit hooks"""
+        hooks = self.config.get("hooks", {}).get("UserPromptSubmit", [])
+        return self._execute_simple_hooks(hooks, {'PROMPT': prompt})
+
+    def execute_notification(self, message: str) -> Dict[str, Any]:
+        """Execute Notification hooks"""
+        hooks = self.config.get("hooks", {}).get("Notification", [])
+        return self._execute_simple_hooks(hooks, {'MESSAGE': message})
+
+    def execute_stop(self) -> Dict[str, Any]:
+        """Execute Stop hooks (when Claude finishes response)"""
+        hooks = self.config.get("hooks", {}).get("Stop", [])
+        return self._execute_simple_hooks(hooks, {})
+
+    def execute_subagent_stop(self, agent_id: str) -> Dict[str, Any]:
+        """Execute SubagentStop hooks"""
+        hooks = self.config.get("hooks", {}).get("SubagentStop", [])
+        return self._execute_simple_hooks(hooks, {'AGENT_ID': agent_id})
+
+    def execute_pre_compact(self) -> Dict[str, Any]:
+        """Execute PreCompact hooks (before context compaction)"""
+        hooks = self.config.get("hooks", {}).get("PreCompact", [])
+        return self._execute_simple_hooks(hooks, {})
+
+    def execute_session_start(self) -> Dict[str, Any]:
+        """Execute SessionStart hooks"""
+        hooks = self.config.get("hooks", {}).get("SessionStart", [])
+        return self._execute_simple_hooks(hooks, {})
+
+    def execute_session_end(self) -> Dict[str, Any]:
+        """Execute SessionEnd hooks"""
+        hooks = self.config.get("hooks", {}).get("SessionEnd", [])
+        return self._execute_simple_hooks(hooks, {})
+
+    def _execute_simple_hooks(self, hook_configs: list, env_vars: dict) -> Dict[str, Any]:
+        """Execute hooks without tool/matcher logic"""
+        for hook_config in hook_configs:
+            for hook_def in hook_config.get("hooks", []):
+                hook = CommandHook(
+                    type=hook_def["type"],
+                    command=hook_def["command"],
+                    args=hook_def.get("args", []),
+                    env=hook_def.get("env", {}),
+                    timeout=hook_def.get("timeout", 5000),
+                    continue_on_error=hook_def.get("continueOnError", False)
+                )
+                context = HookContext(tool="", args={}, **env_vars)
+                result = self.executor.execute_hook(hook, context)
+
+                if result.blocked or result.action == ExitCodeResult.ERROR:
+                    return result.__dict__
+
+        return {'exit_code': 0, 'stdout': '', 'stderr': '', 'blocked': False}

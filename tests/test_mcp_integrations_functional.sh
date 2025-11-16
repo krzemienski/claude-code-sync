@@ -165,14 +165,10 @@ else
 fi
 echo ""
 
-# Test 3: Git MCP
+# Test 3: Git MCP (disabled - not available)
 log_info "=== Test 3: Git MCP ==="
-if command -v npx &> /dev/null; then
-    test_mcp_server "Git" "npx" "-y" "@modelcontextprotocol/server-git"
-else
-    log_warn "npx not found, skipping Git MCP test"
-    fail_test "Git MCP - npx not available"
-fi
+log_warn "Git MCP is disabled (not available in npm registry)"
+log_warn "Alternative: Use uvx mcp-git package"
 echo ""
 
 # Test 4: Memory MCP
@@ -185,14 +181,9 @@ else
 fi
 echo ""
 
-# Test 5: Fetch MCP
+# Test 5: Fetch MCP (disabled - not available)
 log_info "=== Test 5: Fetch MCP ==="
-if command -v npx &> /dev/null; then
-    test_mcp_server "Fetch" "npx" "-y" "@modelcontextprotocol/server-fetch"
-else
-    log_warn "npx not found, skipping Fetch MCP test"
-    fail_test "Fetch MCP - npx not available"
-fi
+log_warn "Fetch MCP is disabled (not available in npm registry yet)"
 echo ""
 
 # Test 6: Puppeteer MCP (disabled by default)
@@ -225,18 +216,23 @@ else
 fi
 echo ""
 
-# Test 9: Time MCP
+# Test 9: Time MCP (disabled - not available)
 log_info "=== Test 9: Time MCP ==="
+log_warn "Time MCP is disabled (not available in npm registry yet)"
+echo ""
+
+# Test 10: Sequential Thinking MCP
+log_info "=== Test 10: Sequential Thinking MCP ==="
 if command -v npx &> /dev/null; then
-    test_mcp_server "Time" "npx" "-y" "@modelcontextprotocol/server-time"
+    test_mcp_server "Sequential-Thinking" "npx" "-y" "@modelcontextprotocol/server-sequential-thinking"
 else
-    log_warn "npx not found, skipping Time MCP test"
-    fail_test "Time MCP - npx not available"
+    log_warn "npx not found, skipping Sequential Thinking MCP test"
+    fail_test "Sequential Thinking MCP - npx not available"
 fi
 echo ""
 
-# Test 10: Config validation
-log_info "=== Test 10: Config Validation ==="
+# Test 11: Config validation
+log_info "=== Test 11: Config Validation ==="
 if python3 -c "import json; json.load(open('$CONFIG_FILE'))" 2>/dev/null; then
     pass_test "Config file is valid JSON"
 else

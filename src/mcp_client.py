@@ -16,7 +16,6 @@ import subprocess
 import threading
 from typing import List, Dict, Any, Optional
 from queue import Queue, Empty
-import uuid
 
 
 class MCPClient:
@@ -170,7 +169,7 @@ class MCPClient:
             }
         }
 
-        result = self._send_request("initialize", init_params)
+        self._send_request("initialize", init_params)
 
         # Send initialized notification
         notification = {

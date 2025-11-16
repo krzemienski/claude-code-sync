@@ -5,7 +5,7 @@ Git-like command interface for syncing Claude Code configurations.
 
 import click
 from pathlib import Path
-from claude_sync import discovery, staging, git_backend, apply as apply_module, validation, deployment, github_ops
+from claude_sync import discovery, staging, git_backend, apply as apply_module, validation, deployment, github_ops, conflicts as conflicts_module, install as install_module
 
 @click.group()
 @click.version_option(version='0.1.0', prog_name='claude-sync')
@@ -406,16 +406,16 @@ def create_repo(name, private):
         else:
             click.echo(f"\n✓ Repository created: {repo_info['html_url']}")
 
-        # Add as origin remote
+        # Add as origin remote (use HTTPS for gh CLI auth)
         click.echo("\nConfiguring remote...")
-        github_ops.add_git_remote('origin', repo_info['ssh_url'], set_upstream=True)
+        github_ops.add_git_remote('origin', repo_info['clone_url'], set_upstream=True)
 
         click.echo("\n✅ Repository ready for sync")
         click.echo(f"\nNext steps:")
         click.echo(f"  claude-sync push origin main    # Push your configs to GitHub")
         click.echo(f"\nOn other machines:")
         click.echo(f"  claude-sync init")
-        click.echo(f"  claude-sync remote add origin {repo_info['ssh_url']}")
+        click.echo(f"  claude-sync remote add origin {repo_info['clone_url']}")
         click.echo(f"  claude-sync pull origin main")
 
     except click.ClickException:
@@ -489,18 +489,15 @@ def remote(action, name, url):
 @cli.command('pull')
 @click.argument('remote', default='origin')
 @click.argument('branch', default='main')
-@click.option('--no-apply', is_flag=True, help="Don't apply after pulling")
-@click.option('--strategy', type=click.Choice(['overwrite', 'keep-local']), default='overwrite',
-              help='Conflict resolution strategy')
-def pull(remote, branch, no_apply, strategy):
+def pull(remote, branch):
     """Pull configurations from remote repository
 
-    Downloads latest configs from GitHub and optionally applies them.
+    Downloads latest configs from GitHub to repository.
+    Does NOT automatically install - run 'claude-sync install' after pulling.
 
     Examples:
-        claude-sync pull origin main                    # Pull and apply
-        claude-sync pull origin --no-apply              # Pull only
-        claude-sync pull origin --strategy keep-local   # Don't overwrite existing
+        claude-sync pull origin main     # Pull from GitHub
+        claude-sync pull                 # Pull from origin/main
     """
     try:
         click.echo(f"Pulling from {remote} {branch}...")
@@ -508,24 +505,87 @@ def pull(remote, branch, no_apply, strategy):
         # Pull from Git remote
         github_ops.pull_from_git_remote(remote, branch)
 
-        # Apply unless --no-apply
-        if not no_apply:
-            click.echo("\nApplying configurations...")
-            applied = apply_module.apply()
-
-            click.echo(f"\n✓ Applied: {applied['skills']} skills, {applied['agents']} agents, "
-                       f"{applied['commands']} commands, {applied['configs']} configs")
-
-            if strategy == 'keep-local':
-                click.echo("\n⚠️  Strategy 'keep-local' not yet fully implemented")
-                click.echo("   Currently overwrites existing files")
-
         click.echo("\n✅ Pull complete")
+        click.echo("\nConfigurations downloaded to repository.")
+        click.echo("\nNext step:")
+        click.echo("  claude-sync install          # Install with conflict detection")
+        click.echo("  claude-sync install --dry-run  # Preview what would be installed")
 
     except click.ClickException:
         raise
     except Exception as e:
         click.echo(f"Error pulling from remote: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command('install')
+@click.option('--strategy', type=click.Choice(['ask', 'keep-local', 'overwrite', 'rename']),
+              default='ask', help='Conflict resolution strategy')
+@click.option('--dry-run', is_flag=True, help='Preview without installing')
+@click.option('--yes', '-y', is_flag=True, help='Auto-confirm installation')
+def install(strategy, dry_run, yes):
+    """Install configurations with conflict resolution
+
+    Copies from repository to actual locations with smart conflict handling.
+
+    Strategies:
+        ask: Prompt for each conflict (default)
+        keep-local: Skip conflicts, keep existing
+        overwrite: Replace conflicts with repo version
+        rename: Install repo version with -remote suffix
+
+    Examples:
+        claude-sync install                      # Interactive (ask for conflicts)
+        claude-sync install --dry-run            # Preview only
+        claude-sync install --strategy overwrite # Auto-overwrite
+        claude-sync install --strategy keep-local # Skip conflicts
+    """
+    try:
+        repo_dir = git_backend.get_repo_dir()
+
+        if not repo_dir.exists():
+            click.echo("Error: Repository not found. Run 'claude-sync init' first.", err=True)
+            raise click.Abort()
+
+        # Detect conflicts
+        click.echo("Analyzing conflicts...")
+        all_conflicts = conflicts_module.detect_all_conflicts(repo_dir)
+
+        # Show summary
+        conflicts_module.print_conflict_summary(all_conflicts)
+
+        # Count total conflicts
+        total_modified = sum(
+            len(type_conflicts['modified'])
+            for type_conflicts in all_conflicts.values()
+        )
+
+        if dry_run:
+            click.echo("✓ Dry-run complete (no changes made)")
+            return
+
+        # Confirm if there are conflicts and using ask strategy
+        if total_modified > 0 and strategy == 'ask' and not yes:
+            if not click.confirm(f"\n{total_modified} conflicts detected. Proceed with installation?"):
+                click.echo("Installation cancelled.")
+                return
+
+        # Install with conflict resolution
+        click.echo("\nInstalling configurations...")
+        results = install_module.install_with_conflicts(all_conflicts, strategy, dry_run)
+
+        # Show summary
+        install_module.print_install_summary(results)
+
+        if results['errors']:
+            click.echo(f"\n⚠️  {len(results['errors'])} errors occurred during installation")
+        else:
+            click.echo("\n✅ Installation complete")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"Error during installation: {e}", err=True)
         raise click.Abort()
 
 

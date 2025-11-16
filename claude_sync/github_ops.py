@@ -95,11 +95,14 @@ def create_github_repository(
         # Build repo info
         full_name = f"{username}/{name}"
 
+        # Setup git to use gh authentication
+        subprocess.run(['gh', 'auth', 'setup-git'], capture_output=True)
+
         return {
             'name': name,
             'full_name': full_name,
+            'clone_url': f"https://github.com/{full_name}.git",  # Use HTTPS (gh CLI auth)
             'ssh_url': f"git@github.com:{full_name}.git",
-            'clone_url': f"https://github.com/{full_name}.git",
             'html_url': f"https://github.com/{full_name}",
         }
 
@@ -165,6 +168,9 @@ def push_to_git_remote(remote_name: str, branch: str = 'main', force: bool = Fal
         click.ClickException: If push fails
     """
     try:
+        # Ensure gh auth is configured for git
+        subprocess.run(['gh', 'auth', 'setup-git'], capture_output=True)
+
         repo = get_repo()
 
         if remote_name not in [r.name for r in repo.remotes]:
@@ -178,9 +184,14 @@ def push_to_git_remote(remote_name: str, branch: str = 'main', force: bool = Fal
         # Push with progress
         click.echo(f"Pushing to {remote_name} ({remote.url})...")
 
+        # Set upstream and push
+        push_args = [f'{branch}:{branch}']
+        if force:
+            push_args = ['--force'] + push_args
+
         push_infos = remote.push(
-            refspec=f'{branch}:{branch}',
-            force=force
+            refspec=push_args,
+            set_upstream=True
         )
 
         # Check push result
@@ -205,7 +216,17 @@ def pull_from_git_remote(remote_name: str, branch: str = 'main'):
         click.ClickException: If pull fails
     """
     try:
+        # Ensure gh auth is configured for git
+        subprocess.run(['gh', 'auth', 'setup-git'], capture_output=True)
+
         repo = get_repo()
+
+        # If no remotes exist yet, treat as initial clone
+        if not repo.remotes:
+            raise click.ClickException(
+                f"No remotes configured. "
+                f"Run: claude-sync remote add {remote_name} <url>"
+            )
 
         if remote_name not in [r.name for r in repo.remotes]:
             raise click.ClickException(
@@ -217,16 +238,33 @@ def pull_from_git_remote(remote_name: str, branch: str = 'main'):
 
         click.echo(f"Pulling from {remote_name} ({remote.url})...")
 
-        # Pull
-        pull_info = remote.pull(branch)
+        # Fetch first
+        remote.fetch()
 
-        # Check for conflicts
-        for info in pull_info:
-            if info.flags & info.ERROR:
-                raise click.ClickException(f"Pull failed: {info.note}")
+        # If local repo is empty (no commits), do initial pull
+        try:
+            repo.head.commit
+            has_commits = True
+        except:
+            has_commits = False
 
-        click.echo(f"  ✓ Pulled from {remote_name}/{branch}")
+        if not has_commits:
+            # Initial pull - set up tracking
+            repo.git.pull(remote_name, branch, '--set-upstream')
+            click.echo(f"  ✓ Initial pull from {remote_name}/{branch}")
+        else:
+            # Normal pull
+            pull_info = remote.pull(branch)
 
+            # Check for conflicts
+            for info in pull_info:
+                if info.flags & info.ERROR:
+                    raise click.ClickException(f"Pull failed: {info.note}")
+
+            click.echo(f"  ✓ Pulled from {remote_name}/{branch}")
+
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(f"Pull failed: {e}")
 

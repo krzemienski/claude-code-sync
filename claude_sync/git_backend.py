@@ -98,6 +98,14 @@ def commit(message: str) -> str:
         raise RuntimeError("No changes to commit. Run 'claude-sync add' first.")
 
     commit_obj = repo.index.commit(message)
+
+    # Ensure branch is named 'main' after first commit
+    try:
+        if repo.active_branch.name == 'master':
+            repo.git.branch('-m', 'master', 'main')
+    except:
+        pass
+
     return commit_obj.hexsha[:7]
 
 

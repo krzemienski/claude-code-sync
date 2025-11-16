@@ -123,11 +123,36 @@ claude-sync apply
 
 ### `claude-sync validate`
 
-Verify deployment succeeded.
+Verify deployment succeeded with multi-level validation.
 
 ```bash
-claude-sync validate
+claude-sync validate                  # Format + count validation
+claude-sync validate --format-only    # Only format checks
+claude-sync validate --sdk            # Include SDK validation (requires API key)
 ```
+
+**Validation Levels:**
+
+**Level 1: File Existence**
+- Counts deployed artifacts
+- Verifies critical skills present
+- Basic sanity check
+
+**Level 2: Format Validation** (Default)
+- Parses YAML frontmatter from SKILL.md files
+- Validates required fields (name, description)
+- Checks JSON configs are valid
+- Verifies commands are readable
+- **Proves: Claude Code CAN parse these files**
+
+**Level 3: SDK Validation** (Optional - requires `ANTHROPIC_API_KEY`)
+- Uses Claude Agents SDK to start session
+- Verifies Claude Code loads skills directory
+- Tests actual skill accessibility
+- **Proves: Claude Code CAN execute these skills**
+
+By default, runs Level 1 + 2 (sufficient for most cases).
+Use `--sdk` for Level 3 if you want to test with actual Claude Code.
 
 ## Docker Deployment Example
 
@@ -140,12 +165,23 @@ claude-sync commit -m "My Claude Code setup"
 # Create target container
 docker run -d --name claude-dev python:3.12-slim sleep infinity
 
-# Deploy
+# Deploy (auto-installs git, validates format)
 claude-sync push docker://claude-dev
 
-# Verify
+# Output shows:
+#   ✅ 117 skills deployed
+#   ✅ YAML frontmatter validated (Claude Code can parse)
+#   ✅ Required fields present (name, description)
+#   ✅ Config files are valid JSON
+#   This proves Claude Code CAN load and use these artifacts.
+
+# Verify manually (optional)
 docker exec claude-dev claude-sync validate
 docker exec claude-dev ls ~/.claude/skills  # See deployed skills
+
+# Verify with Claude SDK (if API key available)
+docker exec -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  claude-dev claude-sync validate --sdk
 ```
 
 ## How It Works
@@ -163,10 +199,18 @@ Mac (Source)                    Docker/Linux (Target)
       ~/.claude-sync/repo/ (Git repository)
                 ↓
          Portable bundle (.tar.gz)
+                ↓
+    Validation via Claude Code format parsing
 ```
 
 **Path Templating:**
 - Mac: `/Users/nick/projects` → Template: `${HOME}/projects` → Linux: `/home/nick/projects`
+
+**Validation:**
+- Not just "files exist" but "Claude Code can use them"
+- Parses YAML frontmatter like Claude Code does
+- Validates JSON configs
+- Optionally tests with Claude Agents SDK
 
 ## Testing
 

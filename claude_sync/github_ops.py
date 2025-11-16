@@ -216,8 +216,10 @@ def pull_from_git_remote(remote_name: str, branch: str = 'main'):
         click.ClickException: If pull fails
     """
     try:
-        # Ensure gh auth is configured for git
-        subprocess.run(['gh', 'auth', 'setup-git'], capture_output=True)
+        # Try to configure gh auth if available (but don't fail if missing)
+        gh_available = subprocess.run(['which', 'gh'], capture_output=True).returncode == 0
+        if gh_available:
+            subprocess.run(['gh', 'auth', 'setup-git'], capture_output=True)
 
         repo = get_repo()
 

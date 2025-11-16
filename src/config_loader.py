@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -183,6 +184,9 @@ def load_config(
     # 5. Substitute environment variables (${VAR_NAME} -> actual values)
     config = substitute_env_vars(config)
 
+    # 6. Execute ApiKeyHelper scripts for dynamic credentials
+    config = substitute_api_key_helpers(config)
+
     return config
 
 
@@ -208,6 +212,61 @@ def substitute_env_vars(config: Dict[str, Any]) -> Dict[str, Any]:
             return os.environ.get(var_name, match.group(0))
 
         return re.sub(r'\$\{([A-Z_][A-Z0-9_]*)\}', replacer, config)
+    else:
+        return config
+
+
+def execute_api_key_helper(helper_path: str) -> str:
+    """
+    Execute apiKeyHelper script and return output.
+
+    Args:
+        helper_path: Path to helper script
+
+    Returns:
+        Script output (trimmed)
+
+    Raises:
+        ConfigurationError: If script fails or times out
+    """
+    try:
+        result = subprocess.run(
+            [helper_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+            shell=False  # Security: no shell execution
+        )
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        raise ConfigurationError(f"ApiKeyHelper timeout: {helper_path}")
+    except subprocess.CalledProcessError as e:
+        raise ConfigurationError(f"ApiKeyHelper failed: {helper_path} - {e.stderr}")
+    except FileNotFoundError:
+        raise ConfigurationError(f"ApiKeyHelper script not found: {helper_path}")
+
+
+def substitute_api_key_helpers(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Replace apiKeyHelper objects with actual values from scripts.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        Configuration with apiKeyHelper values resolved
+    """
+    if isinstance(config, dict):
+        # Check if this dict is an apiKeyHelper object
+        if "apiKeyHelper" in config and isinstance(config["apiKeyHelper"], str):
+            # Execute helper and return the value (replaces entire dict)
+            return execute_api_key_helper(config["apiKeyHelper"])
+        else:
+            # Recursively process nested dicts
+            return {k: substitute_api_key_helpers(v) for k, v in config.items()}
+    elif isinstance(config, list):
+        return [substitute_api_key_helpers(item) for item in config]
     else:
         return config
 

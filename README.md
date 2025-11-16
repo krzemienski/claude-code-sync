@@ -264,7 +264,20 @@ MIT License - See LICENSE file for details
 
 ## Version
 
-**v1.0.0** - Production Release
+**v0.8.0-beta** - Beta Release (80% Complete)
+
+**Status**: Core features complete and tested. System is usable with functional CLI.
+
+**Completion Progress**:
+- Phase 1-3: ✅ Complete (Critical components + structure + testing cleanup)
+- Phase 4-5: 🔄 In progress (Serena semantic integration, production patterns)
+
+**Known Limitations**:
+- Serena semantic analysis integration incomplete (basic wrapper only)
+- Advanced production patterns not yet implemented (monitoring, batch processing)
+- Additional MCP server validations pending
+
+**Upgrade Path**: v0.8.0-beta → v1.0.0 (remaining 20% work)
 
 - Complete implementation (5/5 waves)
 - All tests passing (NO MOCKS)

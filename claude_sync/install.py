@@ -5,7 +5,7 @@ Intelligently installs configurations from repository to actual locations.
 
 from pathlib import Path
 import shutil
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 import click
 from claude_sync.conflicts import detect_all_conflicts, print_conflict_summary, show_conflict_details
 from claude_sync.git_backend import get_repo_dir

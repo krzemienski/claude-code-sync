@@ -9,6 +9,9 @@
 # - pathlib (stdlib)
 # - typing (stdlib)
 
+# Production dependencies
+aiohttp>=3.9.0  # Required for SSE and HTTP transports
+
 # Development dependencies (optional)
 pytest>=7.4.0
 pytest-asyncio>=0.21.0

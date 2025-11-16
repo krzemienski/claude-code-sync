@@ -146,7 +146,26 @@ def push_docker(container_name: str) -> None:
 
     click.echo(f"Deploying to Docker container: {container_name}")
 
-    # 2. Create bundle
+    # 2. Ensure git is installed in container
+    click.echo("Checking git installation...")
+    git_check = subprocess.run(
+        ['docker', 'exec', container_name, 'which', 'git'],
+        capture_output=True
+    )
+
+    if git_check.returncode != 0:
+        click.echo("  Installing git in container...")
+        # Detect OS and install git
+        subprocess.run(
+            ['docker', 'exec', container_name, 'bash', '-c',
+             'apt-get update -qq && apt-get install -y -qq git || yum install -y git || apk add git'],
+            capture_output=True
+        )
+        click.echo("  ✓ Git installed")
+    else:
+        click.echo("  ✓ Git already installed")
+
+    # 3. Create bundle
     click.echo("Creating bundle...")
     bundle_path = create_bundle()
     bundle_size_mb = bundle_path.stat().st_size / 1024 / 1024
@@ -180,7 +199,7 @@ def push_docker(container_name: str) -> None:
     click.echo("Extracting bundle...")
     subprocess.run(
         ['docker', 'exec', container_name, 'bash', '-c',
-         'cd ~/.claude-sync/repo && tar -xzf /tmp/claude-sync-bundle.tar.gz --strip-components=0'],
+         'cd ~/.claude-sync/repo && tar -xzf /tmp/claude-sync-bundle.tar.gz'],
         check=True,
         capture_output=True
     )

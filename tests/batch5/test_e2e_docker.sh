@@ -45,19 +45,16 @@ fi
 
 echo "  ✓ Repository initialized"
 
-# [4/10] Discover and verify skill count
+# [4/10] Verify discovery ran during init
 echo ""
-echo "[4/10] Verifying discovery on Mac..."
-skill_count=$(find ~/.claude-sync/repo/skills -name 'SKILL.md' 2>/dev/null | wc -l | xargs)
+echo "[4/10] Verifying discovery output from init..."
 
-if [ -z "$skill_count" ] || [ "$skill_count" -eq 0 ]; then
-    echo "  ❌ FAIL: No skills discovered after init"
-    echo "  Expected: Discovery to run automatically during init"
+if [[ ! "$init_output" =~ "skills" ]]; then
+    echo "  ❌ FAIL: Init didn't show discovery results"
     exit 1
 fi
 
-echo "  ✓ Discovered artifacts (init shows counts)"
-echo "  ℹ Skills found on Mac: $skill_count"
+echo "  ✓ Discovery ran during init (showed artifact counts)"
 
 # [5/10] Add all configurations
 echo ""
@@ -70,16 +67,22 @@ if [[ ! "$add_output" =~ "Staging complete" ]]; then
     exit 1
 fi
 
+echo "  ✓ Staging complete"
+
 # Verify skills staged
 staged_skills=$(find ~/.claude-sync/repo/skills -name 'SKILL.md' 2>/dev/null | wc -l | xargs)
 
-if [ "$staged_skills" -lt 50 ]; then
+if [ -z "$staged_skills" ] || [ "$staged_skills" -lt 50 ]; then
     echo "  ❌ FAIL: Expected 50+ skills staged, found $staged_skills"
+    echo "  Check: find ~/.claude-sync/repo/skills -name 'SKILL.md'"
     exit 1
 fi
 
-echo "  ✓ All artifacts staged"
-echo "  ✓ $staged_skills skills in repository"
+echo "  ✓ $staged_skills skills staged to repository"
+
+# Verify agents staged
+staged_agents=$(find ~/.claude-sync/repo/agents -name '*.md' 2>/dev/null | wc -l | xargs)
+echo "  ✓ $staged_agents agents staged to repository"
 
 # [6/10] Create commit
 echo ""

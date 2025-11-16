@@ -5,7 +5,7 @@ Git-like command interface for syncing Claude Code configurations.
 
 import click
 from pathlib import Path
-from claude_sync import discovery, staging, git_backend
+from claude_sync import discovery, staging, git_backend, apply as apply_module, validation, deployment
 
 @click.group()
 @click.version_option(version='0.1.0', prog_name='claude-sync')
@@ -200,16 +200,48 @@ def commit(message, commit_all):
 
 @cli.command()
 @click.argument('remote')
-@click.argument('branch', default='main')
 @click.option('--force', is_flag=True, help='Force push')
 @click.option('--dry-run', is_flag=True, help='Show what would be pushed')
-def push(remote, branch, force, dry_run):
+def push(remote, force, dry_run):
     """Deploy configurations to remote
 
-    Pushes configurations to remote target (Git, SSH, Docker).
+    Pushes configurations to remote target (Docker, SSH, Git).
     Similar to 'git push'.
+
+    Examples:
+        claude-sync push docker://mycontainer
+        claude-sync push ssh://user@host
+        claude-sync push origin
     """
-    click.echo(f"TODO: Push to {remote} {branch}")
+    try:
+        if dry_run:
+            click.echo(f"Would push to: {remote}")
+            return
+
+        # Parse remote type
+        if remote.startswith('docker://'):
+            container_name = remote.replace('docker://', '')
+            deployment.push_docker(container_name)
+
+        elif remote.startswith('ssh://'):
+            raise click.ClickException("SSH remotes not yet implemented. Use docker:// for now.")
+
+        elif remote.startswith('git://') or remote.startswith('https://') or remote.startswith('git@'):
+            raise click.ClickException("Git remotes not yet implemented. Use docker:// for now.")
+
+        else:
+            # Assume it's a Git remote name
+            raise click.ClickException(
+                f"Unknown remote format: {remote}\n"
+                "Supported: docker://container-name"
+            )
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Error pushing to remote: {e}", err=True)
+        raise click.Abort()
 
 
 @cli.command()
@@ -251,17 +283,45 @@ def validate():
 
     Checks that all configurations are properly deployed and accessible.
     """
-    click.echo("TODO: Validate deployment")
+    try:
+        success, counts, errors = validation.validate()
+        validation.print_validation_report(success, counts, errors)
+
+        if not success:
+            raise click.Abort()
+
+    except Exception as e:
+        click.echo(f"Error during validation: {e}", err=True)
+        raise click.Abort()
 
 
-@cli.command()
-@click.argument('name')
-def apply_template(name):
-    """Apply project template to current directory
+@cli.command('apply')
+def apply_cmd():
+    """Apply configurations from repository
 
-    Applies saved project settings to a new location.
+    Copies configurations from ~/.claude-sync/repo/ to actual
+    Claude Code locations (~/.claude/skills/, ~/.config/claude/, etc.).
+
+    This makes synced configurations active on the current machine.
     """
-    click.echo(f"TODO: Apply template '{name}'")
+    try:
+        applied = apply_module.apply()
+
+        click.echo("\nApplied configurations:")
+        click.echo(f"  ✓ Skills: {applied['skills']}")
+        click.echo(f"  ✓ Agents: {applied['agents']}")
+        click.echo(f"  ✓ Commands: {applied['commands']}")
+        click.echo(f"  ✓ Configs: {applied['configs']}")
+        click.echo(f"  ✓ Plugins: {applied['plugins']}")
+
+        click.echo("\n✅ Configurations applied successfully")
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Error applying configurations: {e}", err=True)
+        raise click.Abort()
 
 
 def main():

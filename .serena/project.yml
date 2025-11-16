@@ -1,0 +1,13 @@
+# Serena Project Configuration
+# Claude Code Orchestration System Implementation
+
+project_name: "claude-code-sync"
+root_path: "/Users/nick/Desktop/claude-code-sync"
+language: "python"
+
+exclude_patterns:
+  - "*.pyc"
+  - "__pycache__/**"
+  - ".git/**"
+  - "venv/**"
+  - "node_modules/**"

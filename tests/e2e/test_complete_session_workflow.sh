@@ -27,7 +27,7 @@ import json
 # Add project to path
 sys.path.insert(0, '/Users/nick/Desktop/claude-code-sync')
 
-from src.config_loader import load_config, merge_configs
+from src.config_loader import load_config, deep_merge
 
 # Test 1: Load default config (REAL file read)
 print("  - Loading default config from disk...")
@@ -60,6 +60,18 @@ merged = load_config(project_dir=test_dir)
 assert 'test-server' in merged.get('mcp_servers', {}), "Project server must be merged"
 assert merged.get('project_name') == 'E2E Test Project', "Project config must override"
 print("    ✅ 3-tier config merge working")
+
+# Test 3: Test deep_merge function directly
+print("  - Testing deep_merge function...")
+base = {'a': 1, 'nested': {'x': 1, 'y': 2}}
+override = {'b': 2, 'nested': {'y': 3, 'z': 4}}
+result = deep_merge(base, override)
+assert result['a'] == 1, "Base values preserved"
+assert result['b'] == 2, "Override values added"
+assert result['nested']['x'] == 1, "Nested base preserved"
+assert result['nested']['y'] == 3, "Nested override applied"
+assert result['nested']['z'] == 4, "Nested override added"
+print("    ✅ deep_merge working correctly")
 
 print("Step 1: PASSED ✅\n")
 EOF

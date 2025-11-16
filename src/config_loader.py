@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-3-Tier Configuration Loader for Claude Code Orchestration System
+4-Tier Configuration Loader for Claude Code Orchestration System
 
 Implements hierarchical configuration merge with priority:
-1. Default (lowest priority)
-2. User config (~/.config/claude-code/config.json)
-3. Project config (.claude-code/config.json - highest priority)
+1. Enterprise (highest priority) - /etc/claude-code/managed-settings.json
+2. User config - ~/.config/claude-code/config.json
+3. Project shared config - .claude-code/config.json
+4. Project local config - .claude-code/config.local.json (lowest priority)
 
 Features:
 - Deep merge of nested dictionaries
@@ -123,19 +124,27 @@ def get_default_config() -> Dict[str, Any]:
     }
 
 
-def load_config(user_path: Path | None = None,
-                project_path: Path | None = None) -> Dict[str, Any]:
+def load_config(
+    enterprise_path: Path | None = None,
+    user_path: Path | None = None,
+    project_shared_path: Path | None = None,
+    project_local_path: Path | None = None
+) -> Dict[str, Any]:
     """
-    Load and merge configuration from 3-tier hierarchy.
+    Load and merge configuration from 4-tier hierarchy.
 
     Priority (highest to lowest):
-    1. Project config (project_path)
-    2. User config (user_path)
+    1. Enterprise config (enterprise_path) - Managed organizational settings
+    2. User config (user_path) - Personal global settings
+    3. Project shared config (project_shared_path) - Team settings
+    4. Project local config (project_local_path) - Machine-specific settings
     3. Default config
 
     Args:
+        enterprise_path: Optional path to enterprise managed settings
         user_path: Optional path to user configuration file
-        project_path: Optional path to project configuration file
+        project_shared_path: Optional path to project shared configuration
+        project_local_path: Optional path to project local configuration
 
     Returns:
         Merged configuration dictionary
@@ -146,15 +155,28 @@ def load_config(user_path: Path | None = None,
     # Start with defaults
     config = get_default_config()
 
-    # Merge user config if provided
+    # Merge configs in priority order (lowest to highest)
+    # Enterprise wins all conflicts, so merge it last
+
+    # 1. Project local (lowest priority user override)
+    if project_local_path:
+        project_local = load_json_file(project_local_path)
+        config = deep_merge(config, project_local)
+
+    # 2. Project shared (team settings)
+    if project_shared_path:
+        project_shared = load_json_file(project_shared_path)
+        config = deep_merge(config, project_shared)
+
+    # 3. User config (personal settings)
     if user_path:
         user_config = load_json_file(user_path)
         config = deep_merge(config, user_config)
 
-    # Merge project config if provided (highest priority)
-    if project_path:
-        project_config = load_json_file(project_path)
-        config = deep_merge(config, project_config)
+    # 4. Enterprise config (highest priority - organizational policies)
+    if enterprise_path:
+        enterprise = load_json_file(enterprise_path)
+        config = deep_merge(config, enterprise)
 
     return config
 
@@ -167,7 +189,12 @@ def main() -> int:
         Exit code (0 for success, 1 for error)
     """
     parser = argparse.ArgumentParser(
-        description="Load and merge Claude Code configuration from 3-tier hierarchy"
+        description="Load and merge Claude Code configuration from 4-tier hierarchy"
+    )
+    parser.add_argument(
+        '--enterprise',
+        type=Path,
+        help='Path to enterprise managed settings (highest priority)'
     )
     parser.add_argument(
         "--user",
@@ -175,9 +202,14 @@ def main() -> int:
         help="Path to user configuration file"
     )
     parser.add_argument(
-        "--project",
+        "--project-shared",
         type=Path,
-        help="Path to project configuration file"
+        help="Path to project shared configuration file (team settings)"
+    )
+    parser.add_argument(
+        "--project-local",
+        type=Path,
+        help="Path to project local configuration file (machine-specific, gitignored)"
     )
     parser.add_argument(
         "--output",
@@ -193,8 +225,13 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        # Load and merge configuration
-        config = load_config(args.user, args.project)
+        # Load and merge configuration from all 4 tiers
+        config = load_config(
+            enterprise_path=args.enterprise,
+            user_path=args.user,
+            project_shared_path=args.project_shared,
+            project_local_path=args.project_local
+        )
 
         # Format output
         if args.pretty:

@@ -5,6 +5,7 @@ Git-like command interface for syncing Claude Code configurations.
 
 import click
 from pathlib import Path
+from claude_sync import discovery, staging, git_backend
 
 @click.group()
 @click.version_option(version='0.1.0', prog_name='claude-sync')
@@ -31,8 +32,59 @@ def init(force):
     Creates ~/.claude-sync/ directory with Git repository for
     version controlling Claude Code configurations.
     """
-    click.echo("TODO: Initialize repository")
-    click.echo(f"Force: {force}")
+    try:
+        # Initialize Git repository
+        repo = git_backend.init_repository(force=force)
+        sync_dir = Path.home() / '.claude-sync'
+
+        click.echo(f"Initialized claude-sync repository in {sync_dir}/")
+        click.echo("✓ Git repository created")
+        click.echo("✓ Directory structure created")
+
+        # Create ignore file
+        ignore_file = git_backend.get_repo_dir() / '.claude-sync-ignore'
+        ignore_file.write_text("""# Secrets and credentials
+*.env
+*.key
+*.pem
+**/settings.local.json
+
+# Caches and logs
+**/__pycache__/
+**/*.pyc
+**/logs/
+**/cache/
+.DS_Store
+
+# Plugin repos (re-cloned on target)
+plugins/repos/
+
+# Sessions (opt-in only)
+sessions/
+""")
+
+        # Run initial discovery
+        inventory = discovery.discover_all()
+
+        click.echo("")
+        click.echo("Discovered:")
+        click.echo(f"  {len(inventory['skills'])} skills")
+        click.echo(f"  {len(inventory['agents'])} agents")
+        click.echo(f"  {len(inventory['commands'])} commands")
+        click.echo(f"  {len(inventory['configs'])} config files")
+        click.echo(f"  {len(inventory['plugins'])} plugin configs")
+
+        click.echo("")
+        click.echo("Next steps:")
+        click.echo("  claude-sync add --all      # Stage all discovered items")
+        click.echo("  claude-sync commit -m 'Initial commit'")
+
+    except FileExistsError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Error initializing repository: {e}", err=True)
+        raise click.Abort()
 
 
 @cli.command()
@@ -47,9 +99,59 @@ def add(add_all, skills, agents, commands, config):
     Discovers Claude Code artifacts and stages them for version control.
     Similar to 'git add'.
     """
-    click.echo("TODO: Stage artifacts")
-    if add_all:
-        click.echo("  Adding all artifacts...")
+    try:
+        # Ensure repository exists
+        git_backend.get_repo()
+
+        click.echo("Discovering artifacts...")
+
+        # Discover what to stage
+        inventory = discovery.discover_all()
+
+        # Determine what to stage based on flags
+        if not any([add_all, skills, agents, commands, config]):
+            click.echo("Error: Specify what to add (--all, --skills, etc.)", err=True)
+            click.echo("Try: claude-sync add --all")
+            raise click.Abort()
+
+        # Stage selected artifacts
+        counts = {}
+
+        if add_all or skills:
+            counts['skills'] = staging.stage_skills(inventory['skills'])
+
+        if add_all or agents:
+            counts['agents'] = staging.stage_agents(inventory['agents'])
+
+        if add_all or commands:
+            counts['commands'] = staging.stage_commands(inventory['commands'])
+
+        if add_all or config:
+            counts['configs'] = staging.stage_configs(inventory['configs'])
+
+        if add_all:
+            counts['plugins'] = staging.stage_plugins(inventory['plugins'])
+
+        # Git add
+        git_backend.add_all()
+
+        click.echo("")
+        click.echo("Staging complete:")
+        for category, count in counts.items():
+            if count > 0:
+                click.echo(f"  ✓ {category.capitalize()}: {count} added")
+
+        click.echo("")
+        click.echo("Changes staged. Ready to commit.")
+        click.echo("")
+        click.echo("Next: claude-sync commit -m 'Your message'")
+
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Error staging artifacts: {e}", err=True)
+        raise click.Abort()
 
 
 @cli.command()
@@ -61,7 +163,39 @@ def commit(message, commit_all):
     Creates a Git commit with staged changes.
     Similar to 'git commit'.
     """
-    click.echo(f"TODO: Create commit: {message}")
+    try:
+        # If -a flag, stage all first
+        if commit_all:
+            click.echo("Staging all changes...")
+            inventory = discovery.discover_all()
+            staging.stage_all(inventory)
+            git_backend.add_all()
+
+        # Create commit
+        commit_sha = git_backend.commit(message)
+
+        # Get stats
+        repo = git_backend.get_repo()
+        commit_obj = repo.head.commit
+        stats = commit_obj.stats.total
+
+        click.echo(f"[{repo.active_branch.name} {commit_sha}] {message}")
+        click.echo(f" {stats['files']} files changed, "
+                   f"{stats['insertions']} insertions(+), "
+                   f"{stats['deletions']} deletions(-)")
+
+        click.echo("")
+        click.echo(f"✓ Committed: {commit_sha}")
+
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except FileNotFoundError as e:
+        click.echo(f"Error: {e}", err=True)
+        raise click.Abort()
+    except Exception as e:
+        click.echo(f"Error creating commit: {e}", err=True)
+        raise click.Abort()
 
 
 @cli.command()

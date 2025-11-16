@@ -278,18 +278,79 @@ def log(number, oneline):
 
 
 @cli.command()
-def validate():
+@click.option('--format-only', is_flag=True, help='Only validate format (skip counts)')
+@click.option('--sdk', is_flag=True, help='Run SDK validation (requires API key)')
+def validate(format_only, sdk):
     """Validate deployment
 
-    Checks that all configurations are properly deployed and accessible.
+    Checks that configurations are properly deployed and in correct format.
+
+    By default, validates both file existence and Claude Code format.
+    Use --sdk to also validate via Claude Agents SDK (requires ANTHROPIC_API_KEY).
     """
     try:
-        success, counts, errors = validation.validate()
-        validation.print_validation_report(success, counts, errors)
+        import subprocess
+        import sys
+        from pathlib import Path
 
-        if not success:
+        # Always run format validation (proves Claude Code can parse)
+        click.echo("\nRunning format validation...")
+        script_path = Path(__file__).parent / 'scripts' / 'validate_claude_format.py'
+
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True
+        )
+
+        print(result.stdout)
+
+        if result.returncode != 0:
+            click.echo("\n❌ Format validation failed", err=True)
+            if result.stderr:
+                click.echo(result.stderr, err=True)
             raise click.Abort()
 
+        # Optionally run SDK validation
+        if sdk:
+            click.echo("\nRunning SDK validation...")
+            sdk_script = Path(__file__).parent / 'scripts' / 'validate_claude_sdk.py'
+
+            sdk_result = subprocess.run(
+                [sys.executable, str(sdk_script)],
+                capture_output=True,
+                text=True
+            )
+
+            print(sdk_result.stdout)
+
+            if sdk_result.returncode == 1:  # Failed (not skipped)
+                click.echo("\n❌ SDK validation failed", err=True)
+                raise click.Abort()
+            elif sdk_result.returncode == 2:  # Skipped
+                click.echo("\n⚠️  SDK validation skipped (see output above)")
+
+        if not format_only:
+            # Also run count validation
+            click.echo("\nCounting deployed artifacts...")
+            success, counts, errors = validation.validate()
+
+            if not success:
+                click.echo("\n❌ Count validation failed", err=True)
+                for error in errors:
+                    click.echo(f"  - {error}", err=True)
+                raise click.Abort()
+            else:
+                click.echo(f"\n✅ Artifact counts verified")
+                click.echo(f"  Skills: {counts['skills']}")
+                click.echo(f"  Agents: {counts['agents']}")
+                click.echo(f"  Commands: {counts['commands']}")
+
+        click.echo("\n✅ All validations passed")
+
+    except subprocess.SubprocessError as e:
+        click.echo(f"Error running validation: {e}", err=True)
+        raise click.Abort()
     except Exception as e:
         click.echo(f"Error during validation: {e}", err=True)
         raise click.Abort()

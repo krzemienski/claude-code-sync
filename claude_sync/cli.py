@@ -5,7 +5,7 @@ Git-like command interface for syncing Claude Code configurations.
 
 import click
 from pathlib import Path
-from claude_sync import discovery, staging, git_backend, apply as apply_module, validation, deployment
+from claude_sync import discovery, staging, git_backend, apply as apply_module, validation, deployment, github_ops
 
 @click.group()
 @click.version_option(version='0.1.0', prog_name='claude-sync')
@@ -200,47 +200,46 @@ def commit(message, commit_all):
 
 @cli.command()
 @click.argument('remote')
+@click.argument('branch', default='main')
 @click.option('--force', is_flag=True, help='Force push')
 @click.option('--dry-run', is_flag=True, help='Show what would be pushed')
-def push(remote, force, dry_run):
-    """Deploy configurations to remote
+def push(remote, branch, force, dry_run):
+    """Push configurations to remote
 
-    Pushes configurations to remote target (Docker, SSH, Git).
-    Similar to 'git push'.
+    Pushes to Git remote (GitHub) or directly to Docker container.
 
     Examples:
-        claude-sync push docker://mycontainer
-        claude-sync push ssh://user@host
-        claude-sync push origin
+        claude-sync push origin main              # Push to GitHub
+        claude-sync push origin                   # Push to GitHub (main branch)
+        claude-sync push docker://mycontainer     # Direct Docker deployment
     """
     try:
         if dry_run:
-            click.echo(f"Would push to: {remote}")
+            click.echo(f"Would push to: {remote} {branch}")
             return
 
         # Parse remote type
         if remote.startswith('docker://'):
+            # Legacy: Direct Docker deployment
             container_name = remote.replace('docker://', '')
             deployment.push_docker(container_name)
 
         elif remote.startswith('ssh://'):
-            raise click.ClickException("SSH remotes not yet implemented. Use docker:// for now.")
-
-        elif remote.startswith('git://') or remote.startswith('https://') or remote.startswith('git@'):
-            raise click.ClickException("Git remotes not yet implemented. Use docker:// for now.")
+            raise click.ClickException("SSH remotes not yet implemented.")
 
         else:
-            # Assume it's a Git remote name
-            raise click.ClickException(
-                f"Unknown remote format: {remote}\n"
-                "Supported: docker://container-name"
-            )
+            # Assume it's a Git remote name (e.g., 'origin')
+            click.echo(f"Pushing to Git remote: {remote}/{branch}")
+            github_ops.push_to_git_remote(remote, branch, force)
+            click.echo(f"\n✅ Pushed to {remote}")
 
     except FileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         raise click.Abort()
+    except click.ClickException:
+        raise
     except Exception as e:
-        click.echo(f"Error pushing to remote: {e}", err=True)
+        click.echo(f"Error pushing: {e}", err=True)
         raise click.Abort()
 
 
@@ -382,6 +381,151 @@ def apply_cmd():
         raise click.Abort()
     except Exception as e:
         click.echo(f"Error applying configurations: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command('create-repo')
+@click.option('--name', default='claude-code-settings', help='Repository name')
+@click.option('--private/--public', default=True, help='Create private repo (default: private)')
+def create_repo(name, private):
+    """Create GitHub repository for syncing configs
+
+    Creates a private GitHub repository and configures it as 'origin' remote.
+
+    Requires: gh CLI (brew install gh) and authentication (gh auth login)
+    """
+    try:
+        click.echo(f"Creating GitHub repository: {name}")
+        click.echo(f"  Privacy: {'Private' if private else 'Public'}")
+
+        # Create repository using gh CLI
+        repo_info = github_ops.create_github_repository(name, private)
+
+        if repo_info.get('already_exists'):
+            click.echo(f"\n⚠️  Repository already exists: {repo_info['html_url']}")
+        else:
+            click.echo(f"\n✓ Repository created: {repo_info['html_url']}")
+
+        # Add as origin remote
+        click.echo("\nConfiguring remote...")
+        github_ops.add_git_remote('origin', repo_info['ssh_url'], set_upstream=True)
+
+        click.echo("\n✅ Repository ready for sync")
+        click.echo(f"\nNext steps:")
+        click.echo(f"  claude-sync push origin main    # Push your configs to GitHub")
+        click.echo(f"\nOn other machines:")
+        click.echo(f"  claude-sync init")
+        click.echo(f"  claude-sync remote add origin {repo_info['ssh_url']}")
+        click.echo(f"  claude-sync pull origin main")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"Error creating repository: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command('remote')
+@click.argument('action', type=click.Choice(['add', 'remove', 'list', 'show']))
+@click.argument('name', required=False)
+@click.argument('url', required=False)
+def remote(action, name, url):
+    """Manage Git remotes
+
+    Examples:
+        claude-sync remote add origin git@github.com:user/repo.git
+        claude-sync remote list
+        claude-sync remote remove origin
+    """
+    try:
+        if action == 'add':
+            if not name or not url:
+                click.echo("Error: 'remote add' requires NAME and URL", err=True)
+                raise click.Abort()
+
+            github_ops.add_git_remote(name, url)
+            click.echo(f"✅ Remote '{name}' added")
+
+        elif action == 'remove':
+            if not name:
+                click.echo("Error: 'remote remove' requires NAME", err=True)
+                raise click.Abort()
+
+            repo = git_backend.get_repo()
+            repo.delete_remote(name)
+            click.echo(f"✅ Remote '{name}' removed")
+
+        elif action == 'list':
+            remotes = github_ops.list_remotes()
+            if not remotes:
+                click.echo("No remotes configured")
+            else:
+                for remote_name, remote_url in remotes:
+                    click.echo(f"{remote_name}\t{remote_url}")
+
+        elif action == 'show':
+            if not name:
+                click.echo("Error: 'remote show' requires NAME", err=True)
+                raise click.Abort()
+
+            repo = git_backend.get_repo()
+            if name not in [r.name for r in repo.remotes]:
+                click.echo(f"Error: Remote '{name}' not found", err=True)
+                raise click.Abort()
+
+            remote_obj = repo.remote(name)
+            click.echo(f"Remote: {name}")
+            click.echo(f"  URL: {remote_obj.url}")
+            click.echo(f"  Fetch: {remote_obj.url}")
+            click.echo(f"  Push: {remote_obj.url}")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"Error managing remote: {e}", err=True)
+        raise click.Abort()
+
+
+@cli.command('pull')
+@click.argument('remote', default='origin')
+@click.argument('branch', default='main')
+@click.option('--no-apply', is_flag=True, help="Don't apply after pulling")
+@click.option('--strategy', type=click.Choice(['overwrite', 'keep-local']), default='overwrite',
+              help='Conflict resolution strategy')
+def pull(remote, branch, no_apply, strategy):
+    """Pull configurations from remote repository
+
+    Downloads latest configs from GitHub and optionally applies them.
+
+    Examples:
+        claude-sync pull origin main                    # Pull and apply
+        claude-sync pull origin --no-apply              # Pull only
+        claude-sync pull origin --strategy keep-local   # Don't overwrite existing
+    """
+    try:
+        click.echo(f"Pulling from {remote} {branch}...")
+
+        # Pull from Git remote
+        github_ops.pull_from_git_remote(remote, branch)
+
+        # Apply unless --no-apply
+        if not no_apply:
+            click.echo("\nApplying configurations...")
+            applied = apply_module.apply()
+
+            click.echo(f"\n✓ Applied: {applied['skills']} skills, {applied['agents']} agents, "
+                       f"{applied['commands']} commands, {applied['configs']} configs")
+
+            if strategy == 'keep-local':
+                click.echo("\n⚠️  Strategy 'keep-local' not yet fully implemented")
+                click.echo("   Currently overwrites existing files")
+
+        click.echo("\n✅ Pull complete")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        click.echo(f"Error pulling from remote: {e}", err=True)
         raise click.Abort()
 
 

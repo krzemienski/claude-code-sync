@@ -17,6 +17,8 @@ Features:
 
 import argparse
 import json
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -178,7 +180,36 @@ def load_config(
         enterprise = load_json_file(enterprise_path)
         config = deep_merge(config, enterprise)
 
+    # 5. Substitute environment variables (${VAR_NAME} -> actual values)
+    config = substitute_env_vars(config)
+
     return config
+
+
+def substitute_env_vars(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Recursively substitute ${VAR_NAME} with environment variables.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        Configuration with environment variables substituted
+    """
+    if isinstance(config, dict):
+        return {k: substitute_env_vars(v) for k, v in config.items()}
+    elif isinstance(config, list):
+        return [substitute_env_vars(item) for item in config]
+    elif isinstance(config, str):
+        # Replace ${VAR_NAME} with os.environ.get('VAR_NAME')
+        def replacer(match):
+            var_name = match.group(1)
+            # Return env var value, or keep ${VAR} if not found
+            return os.environ.get(var_name, match.group(0))
+
+        return re.sub(r'\$\{([A-Z_][A-Z0-9_]*)\}', replacer, config)
+    else:
+        return config
 
 
 def main() -> int:

@@ -301,6 +301,12 @@ def main():
     command = sys.argv[1]
     file_path = sys.argv[2]
 
+    # Resolve to absolute path
+    path = Path(file_path)
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    file_path = str(path)
+
     gates = ValidationGates()
 
     if command == 'syntax':
